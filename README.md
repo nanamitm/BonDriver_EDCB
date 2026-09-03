@@ -1,5 +1,7 @@
 # BonDriver_EDCB
 
+[![build](https://github.com/nanamitm/BonDriver_EDCB/actions/workflows/build.yml/badge.svg)](https://github.com/nanamitm/BonDriver_EDCB/actions/workflows/build.yml)
+
 TVTest から [EDCB](https://github.com/xtne6f/EDCB) の Legacy WebUI 経由でライブ視聴するための BonDriver です。
 
 EpgTimerSrv が持っている HTTP サーバー(既定 5510 番)だけを使って、チャンネル一覧の取得から
@@ -188,6 +190,10 @@ Visual Studio 2022 (v143 ツールセット) / C++20。x64・Win32 のどちら�
 ```
 msbuild BonDriver_EDCB.sln /p:Configuration=Release /p:Platform=x64
 ```
+
+push と pull request のたびに GitHub Actions で x64 / x86 の両方をビルドしています
+(`.github/workflows/build.yml`)。DLL・ini・`server/bonstream.lua`・ドキュメントをまとめたものが
+各実行の Artifacts から取得できます。
 
 ## 動作確認 (test/bontest.cpp)
 

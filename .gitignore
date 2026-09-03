@@ -1,6 +1,7 @@
 # ビルド出力
 x64/
 Win32/
+dist/
 Debug/
 Release/
 *.obj
