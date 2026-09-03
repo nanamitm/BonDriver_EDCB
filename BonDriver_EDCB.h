@@ -12,11 +12,9 @@
 #include <ws2tcpip.h>
 #include <InitGuid.h>
 #include "IBonDriver2.h"
-#include "thirdparty/binzume/http.h"
 #include "thirdparty/nlohmann/json.hpp"
 
 using namespace std;
-using namespace Net;
 using json = nlohmann::json;
 
 #if !defined(_BONTUNER_H_)
@@ -134,6 +132,7 @@ protected:
 	void AbortStream();
 
 	bool m_bTunerOpen;
+	bool m_bWsaInit;
 
 	HANDLE m_hMutex;
 

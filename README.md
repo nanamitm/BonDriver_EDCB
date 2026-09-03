@@ -160,13 +160,13 @@ EpgTimer で使用チューナーを確認しておくと安全です。
 
 | | `SetChannel()` | 映像が出るまで |
 | --- | --- | --- |
-| 地デジ / BS / CS | 約 1.5 秒 | 約 3.3 秒(チャンネル変更は約 1.9 秒) |
-| BS4K (BonDriver_dantto4k 経由) | 約 1.5 秒 | 約 30 秒(チャンネル変更は約 9.4 秒) |
+| 地デジ / BS / CS | 15〜50ms | 約 4 秒(チャンネル変更は約 1.9 秒) |
+| BS4K (BonDriver_dantto4k 経由) | 15〜50ms | 約 30 秒(チャンネル変更は約 9.4 秒) |
 
 BS4K が極端に遅いのは EDCB 側が dantto4k のチューナープロセス起動と ACAS 初期化を
 同期的に待つためで、プラグイン側では短縮できません。そのままだと視聴アプリの応答待ちを
 超えてしまうため、既定の `EARLY_RESPONSE=1` ではチューナーを開く前に HTTP ヘッダを返させ、
-`SetChannel()` 自体は約 1.5 秒で返るようにしています。選局の成否を `SetChannel()` の
+`SetChannel()` 自体はすぐ返るようにしています。選局の成否を `SetChannel()` の
 戻り値で正しく受け取りたい場合は 0 にしてください(BS4K では約 29.5 秒ブロックします)。
 
 ## 制限・未対応
@@ -186,8 +186,8 @@ BS4K が極端に遅いのは EDCB 側が dantto4k のチューナープロセ�
 Visual Studio 2022 以降 / C++20。x64・Win32 のどちらも通ります。
 プラットフォームツールセットは `$(DefaultPlatformToolset)` にしてあるので、
 インストールされている Visual Studio のもの(VS2022 なら v143、VS2026 なら v145)が使われます。
-外部ライブラリは `thirdparty/` にソースごと同梱しているので、サブモジュールの取得は不要です
-(内訳は [thirdparty/README.md](thirdparty/README.md))。
+外部ライブラリは JSON パーサ(nlohmann/json)だけで、`thirdparty/` にソースごと同梱しています。
+サブモジュールの取得は不要です(内訳は [thirdparty/README.md](thirdparty/README.md))。
 
 ```
 msbuild BonDriver_EDCB.sln /p:Configuration=Release /p:Platform=x64

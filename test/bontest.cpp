@@ -55,7 +55,13 @@ static bool TuneAndReceive(IBonDriver2 *pBon2, DWORD dwSpace, DWORD dwChannel, D
 
 	ULONGLONG total = 0;
 	ULONGLONG firstByteTick = 0;
-	DWORD syncOk = 0, syncNg = 0;
+
+	// ストリーム全体を通して 188 バイトごとに同期バイトが並んでいるかを見る。
+	// GetTsStream() が返す 1 回分の切れ目は TCP の受信境界でしかなく TS パケットの
+	// 境界とは限らないので、払い出し単位ではなく通しの位置で判定する
+	// (ここが合わなくなっていたらバイトの脱落か重複が起きている)
+	ULONGLONG syncOk = 0, syncNg = 0;
+	size_t syncPhase = (size_t)-1;
 
 	const ULONGLONG deadline = ::GetTickCount64() + dwSeconds * 1000;
 	while (::GetTickCount64() < deadline) {
@@ -72,14 +78,24 @@ static bool TuneAndReceive(IBonDriver2 *pBon2, DWORD dwSpace, DWORD dwChannel, D
 			if (!firstByteTick) {
 				firstByteTick = ::GetTickCount64();
 			}
-			// 先頭が同期バイトかどうかだけ数える(受信の切れ目を見るため)
-			if (pBuf[0] == 0x47) syncOk++; else syncNg++;
+			for (DWORD i = 0; i < dwSize; i++) {
+				const size_t pos = (size_t)((total + i) % 188);
+				if (syncPhase == (size_t)-1) {
+					// 最初に見つけた同期バイトの位置を基準にする
+					if (pBuf[i] == 0x47) {
+						syncPhase = pos;
+						syncOk++;
+					}
+				} else if (pos == syncPhase) {
+					if (pBuf[i] == 0x47) syncOk++; else syncNg++;
+				}
+			}
 			total += dwSize;
 			if (!dwRemain) break;
 		}
 	}
 
-	Print(L"received %llu bytes (%.2f Mbps), first byte at %llu ms, chunks sync ok/ng = %lu/%lu\n",
+	Print(L"received %llu bytes (%.2f Mbps), first byte at %llu ms, TS sync ok/ng = %llu/%llu\n",
 	      total, (double)total * 8 / (dwSeconds * 1000000.0),
 	      firstByteTick ? firstByteTick - start : 0, syncOk, syncNg);
 	Print(L"GetSignalLevel = %.2f\n", pBon2->GetSignalLevel());

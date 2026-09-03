@@ -93,8 +93,6 @@
     <ClInclude Include="BonDriver_EDCB.h" />
     <ClInclude Include="IBonDriver.h" />
     <ClInclude Include="IBonDriver2.h" />
-    <ClInclude Include="thirdparty\binzume\http.h" />
-    <ClInclude Include="thirdparty\binzume\socket.h" />
     <ClInclude Include="thirdparty\nlohmann\json.hpp" />
   </ItemGroup>
   <ItemGroup>

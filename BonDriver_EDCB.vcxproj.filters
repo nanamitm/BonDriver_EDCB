@@ -31,12 +31,6 @@
     <ClInclude Include="IBonDriver2.h">
       <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
-    <ClInclude Include="thirdparty\binzume\http.h">
-      <Filter>ヘッダー ファイル\thirdparty</Filter>
-    </ClInclude>
-    <ClInclude Include="thirdparty\binzume\socket.h">
-      <Filter>ヘッダー ファイル\thirdparty</Filter>
-    </ClInclude>
     <ClInclude Include="thirdparty\nlohmann\json.hpp">
       <Filter>ヘッダー ファイル\thirdparty</Filter>
     </ClInclude>

@@ -244,11 +244,15 @@ static bool RecvHttpStatusCode(SOCKET sock, int &statusCode, DWORD dwTimeoutMs, 
 	return statusCode != 0;
 }
 
-// サーバーのURL(スキーム+ホスト)
-static std::string ServerBaseUrl()
+// Hostヘッダに入れる "ホスト:ポート"
+static std::string ServerHostPort()
 {
-	return "http://" + std::string(g_ServerHost) + ":" + std::string(g_ServerPort);
+	return std::string(g_ServerHost) + ":" + std::string(g_ServerPort);
 }
+
+// 設定されたEDCBに対してHTTP GETし、ステータスコードとボディを得る
+// (実体は下のほう。ConnectToServer()を使うのでその定義より後ろに置いている)
+static bool HttpGet(const std::string &path, int &statusCode, std::string &body, DWORD dwTimeoutMs = 10000);
 
 // "<ONID>-<TSID>-<SID>"
 static std::string ChannelIdString(const TChannel &ch)
@@ -261,28 +265,27 @@ static std::string ChannelIdString(const TChannel &ch)
 //  トークンを平文で返す stream.lua(外部プレーヤー用の.m3u生成)から拾う)
 static std::string FetchCsrfToken(const TChannel &ch)
 {
-	HttpClient client;
-	std::string url = ServerBaseUrl() + g_BasePath + "/stream.lua?n=" + std::to_string(g_NwtvID)
+	std::string path = std::string(g_BasePath) + "/stream.lua?n=" + std::to_string(g_NwtvID)
 		+ "&id=" + ChannelIdString(ch);
 
-	HttpResponse response = client.get(url);
-	if (response.status != 200) {
-		DebugOutA("%s: FetchCsrfToken() failed. status = %d\n", TUNER_NAME, response.status);
+	int status = 0;
+	std::string body;
+	if (!HttpGet(path, status, body) || status != 200) {
+		DebugOutA("%s: FetchCsrfToken() failed. status = %d\n", TUNER_NAME, status);
 		return std::string();
 	}
 
-	size_t p = response.content.find("ctok=");
+	size_t p = body.find("ctok=");
 	if (p == std::string::npos) {
 		DebugOutA("%s: FetchCsrfToken() no token in response\n", TUNER_NAME);
 		return std::string();
 	}
 	p += 5;
 	size_t e = p;
-	while (e < response.content.size() &&
-	       (isalnum((unsigned char)response.content[e]) || response.content[e] == '%')) {
+	while (e < body.size() && (isalnum((unsigned char)body[e]) || body[e] == '%')) {
 		e++;
 	}
-	return response.content.substr(p, e - p);
+	return body.substr(p, e - p);
 }
 
 // 直前に接続できたアドレスファミリ(AF_INET/AF_INET6)
@@ -384,6 +387,117 @@ static SOCKET ConnectToServer()
 	}
 
 	return sock;
+}
+
+// 設定されたEDCBに対してHTTP GETし、ステータスコードとボディを得る
+// (チャンネル一覧とCSRFトークンの取得にだけ使う小さなクライアント。
+//  ストリームの受信はこれを通さず、SetChannel()が直接ソケットを読む)
+// 戻り値: ステータス行を解釈できたらtrue(2xx以外でもtrue。statusCodeで判断すること)
+static bool HttpGet(const std::string &path, int &statusCode, std::string &body, DWORD dwTimeoutMs)
+{
+	// 壊れた応答でメモリを食い潰さないための上限
+	const size_t MAX_RESPONSE_SIZE = 8 * 1024 * 1024;
+
+	statusCode = 0;
+	body.clear();
+
+	SOCKET sock = ConnectToServer();
+	if (sock == INVALID_SOCKET) {
+		return false;
+	}
+
+	::setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char *)&dwTimeoutMs, sizeof(dwTimeoutMs));
+	::setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, (const char *)&dwTimeoutMs, sizeof(dwTimeoutMs));
+
+	// HTTP/1.0 + Connection: close なので、応答は接続が閉じるまで読めばよい
+	const std::string request = "GET " + path + " HTTP/1.0\r\n"
+		"Host: " + ServerHostPort() + "\r\n"
+		"User-Agent: " TUNER_NAME "\r\n"
+		"Accept-Encoding: identity\r\n"
+		"Connection: close\r\n"
+		"\r\n";
+
+	if (send(sock, request.c_str(), (int)request.length(), 0) < 0) {
+		DebugOutA("%s: HttpGet() send error %d\n", TUNER_NAME, WSAGetLastError());
+		closesocket(sock);
+		return false;
+	}
+
+	std::string response;
+	char buf[8192];
+	for (;;) {
+		int n = recv(sock, buf, sizeof(buf), 0);
+		if (n <= 0) {
+			break;
+		}
+		response.append(buf, n);
+		if (response.size() > MAX_RESPONSE_SIZE) {
+			DebugOutA("%s: HttpGet() response too large\n", TUNER_NAME);
+			closesocket(sock);
+			return false;
+		}
+	}
+	closesocket(sock);
+
+	// ヘッダとボディに分ける
+	size_t headerEnd = response.find("\r\n\r\n");
+	if (headerEnd == std::string::npos) {
+		DebugOutA("%s: HttpGet() incomplete response (%u bytes)\n", TUNER_NAME, (unsigned)response.size());
+		return false;
+	}
+	const std::string header = response.substr(0, headerEnd);
+	body = response.substr(headerEnd + 4);
+
+	// ステータスライン("HTTP/1.1 200 OK")
+	size_t sp = header.find(' ');
+	if (sp == std::string::npos) {
+		return false;
+	}
+	statusCode = atoi(header.c_str() + sp + 1);
+	if (statusCode == 0) {
+		return false;
+	}
+
+	// ヘッダ名は大文字小文字を区別しないので、探す前に小文字にしておく
+	std::string lower = header;
+	std::transform(lower.begin(), lower.end(), lower.begin(),
+	               [](char c) { return (char)tolower((unsigned char)c); });
+
+	// リバースプロキシを挟むとチャンク転送で返ってくることがある
+	if (lower.find("\r\ntransfer-encoding:") != std::string::npos &&
+	    lower.find("chunked", lower.find("\r\ntransfer-encoding:")) != std::string::npos) {
+		std::string decoded;
+		size_t pos = 0;
+		for (;;) {
+			size_t eol = body.find("\r\n", pos);
+			if (eol == std::string::npos) {
+				break;
+			}
+			// チャンクサイズは16進。拡張(";"以降)は読み飛ばす
+			const size_t size = strtoul(body.substr(pos, eol - pos).c_str(), NULL, 16);
+			if (size == 0) {
+				break;
+			}
+			pos = eol + 2;
+			if (pos + size > body.size()) {
+				DebugOutA("%s: HttpGet() truncated chunk\n", TUNER_NAME);
+				break;
+			}
+			decoded.append(body, pos, size);
+			pos += size + 2;
+		}
+		body.swap(decoded);
+	} else {
+		size_t lenPos = lower.find("\r\ncontent-length:");
+		if (lenPos != std::string::npos) {
+			const size_t length = strtoul(lower.c_str() + lenPos + 17, NULL, 10);
+			if (length < body.size()) {
+				body.resize(length);
+			}
+		}
+	}
+
+	return true;
 }
 
 // 選局用のリクエストパスを作る
@@ -551,6 +665,7 @@ HINSTANCE CBonTuner::m_hModule = NULL;
 
 CBonTuner::CBonTuner()
 	: m_bTunerOpen(FALSE)
+	, m_bWsaInit(false)
 	, m_hMutex(NULL)
 	, m_pIoReqBuff(NULL)
 	, m_pIoPushReq(NULL)
@@ -575,6 +690,12 @@ CBonTuner::CBonTuner()
 	::InitializeCriticalSection(&m_CriticalSection);
 	::InitializeCriticalSection(&m_ChannelLock);
 
+	// Winsock初期化
+	// (チャンネル一覧の取得でもソケットを使うので、InitChannel()より前に行う。
+	//  DllMainからではなくCreateBonDriver()経由で呼ばれるので、ここで初期化してよい)
+	WSADATA stWsa;
+	m_bWsaInit = (WSAStartup(MAKEWORD(2, 2), &stWsa) == 0);
+
 	// チャンネル一覧取得
 	InitChannel();
 }
@@ -589,7 +710,7 @@ CBonTuner::~CBonTuner()
 	::DeleteCriticalSection(&m_ChannelLock);
 
 	// Winsock終了
-	if (m_bTunerOpen) {
+	if (m_bWsaInit) {
 		WSACleanup();
 	}
 
@@ -598,18 +719,17 @@ CBonTuner::~CBonTuner()
 
 // サービス一覧をJSONで取得する
 // 戻り値: 取得できたらtrue
-static bool FetchServiceList(const std::string &url, json &items)
+static bool FetchServiceList(const std::string &path, json &items)
 {
-	HttpClient client;
-
-	HttpResponse response = client.get(url);
-	if (response.status != 200) {
-		DebugOutA("%s: FetchServiceList() failed. status = %d, url = %s\n", TUNER_NAME, response.status, url.c_str());
+	int status = 0;
+	std::string body;
+	if (!HttpGet(path, status, body) || status != 200) {
+		DebugOutA("%s: FetchServiceList() failed. status = %d, path = %s\n", TUNER_NAME, status, path.c_str());
 		return false;
 	}
 
 	try {
-		json parsed = json::parse(response.content);
+		json parsed = json::parse(body);
 		if (!parsed.is_object() || !parsed.contains("items") || !parsed["items"].is_array()) {
 			// EPG読み込み中などのときは {"err":"..."} が返る
 			throw std::runtime_error("no items array");
@@ -698,13 +818,13 @@ void CBonTuner::InitChannel()
 	// EPGデータの有無に依存しないので、EPGを取得していないチャンネル(BS4Kなど)も
 	// 漏れなく列挙できる。こちらを優先する
 	if (g_Endpoint == ENDPOINT_BONSTREAM && g_StreamKey[0] != '\0') {
-		got = FetchServiceList(ServerBaseUrl() + g_BasePath + "/bonstream.lua?key="
+		got = FetchServiceList(std::string(g_BasePath) + "/bonstream.lua?key="
 		                       + std::string(g_StreamKey) + "&list=1", items);
 	}
 
 	// bonstream.lua を置いていない場合はEPG由来のサービス一覧で代用する
 	if (!got) {
-		got = FetchServiceList(ServerBaseUrl() + "/api/EnumService?json=1", items);
+		got = FetchServiceList("/api/EnumService?json=1", items);
 	}
 
 	if (!got) {
@@ -807,15 +927,16 @@ void CBonTuner::InitChannel()
 
 const BOOL CBonTuner::OpenTuner()
 {
-	if (!m_bTunerOpen) {
-		// Winsock初期化
+	if (!m_bWsaInit) {
+		// コンストラクタで失敗していた場合はここでやり直す
 		WSADATA stWsa;
-		if (WSAStartup(MAKEWORD(2, 2), &stWsa) != 0) {
+		m_bWsaInit = (WSAStartup(MAKEWORD(2, 2), &stWsa) == 0);
+		if (!m_bWsaInit) {
 			return FALSE;
 		}
-
-		m_bTunerOpen = TRUE;
 	}
+
+	m_bTunerOpen = TRUE;
 
 	// DLLロード時にEDCBが起動していなかった場合などのために、
 	// チャンネル一覧が空ならここで取り直す
