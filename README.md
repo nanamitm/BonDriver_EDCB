@@ -183,7 +183,9 @@ BS4K が極端に遅いのは EDCB 側が dantto4k のチューナープロセ�
 
 ## ビルド
 
-Visual Studio 2022 (v143 ツールセット) / C++20。x64・Win32 のどちらも通ります。
+Visual Studio 2022 以降 / C++20。x64・Win32 のどちらも通ります。
+プラットフォームツールセットは `$(DefaultPlatformToolset)` にしてあるので、
+インストールされている Visual Studio のもの(VS2022 なら v143、VS2026 なら v145)が使われます。
 外部ライブラリは `thirdparty/` にソースごと同梱しているので、サブモジュールの取得は不要です
 (内訳は [thirdparty/README.md](thirdparty/README.md))。
 

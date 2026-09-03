@@ -32,16 +32,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Locate Visual Studio 2022
+      - name: Locate Visual Studio
         shell: pwsh
         run: |
-          # プロジェクトは v143 ツールセットを指定しているので 17.x を選ぶ
+          # ツールセットはプロジェクト側で $(DefaultPlatformToolset) にしてあるので、
+          # ランナーに入っている Visual Studio をそのまま使う
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-          $vsPath = & $vswhere -products * -version '[17.0,18.0)' -requires Microsoft.Component.MSBuild -property installationPath |
-                    Select-Object -First 1
-          if (-not $vsPath) { throw 'Visual Studio 2022 (v143) not found' }
-          Write-Host "Visual Studio: $vsPath"
-          "VSPATH=$vsPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $vs = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild -format json |
+                ConvertFrom-Json | Select-Object -First 1
+          if (-not $vs) { throw 'Visual Studio not found' }
+          Write-Host "Visual Studio $($vs.installationVersion) : $($vs.installationPath)"
+          "VSPATH=$($vs.installationPath)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build (${{ matrix.platform }})
         shell: cmd
