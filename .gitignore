@@ -1,0 +1,28 @@
+# ビルド出力
+x64/
+Win32/
+Debug/
+Release/
+*.obj
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ipdb
+*.iobj
+*.idb
+*.tlog
+*.log
+*.recipe
+*.FileListAbsolute.txt
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.VC.opendb
+ipch/

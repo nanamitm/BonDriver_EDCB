@@ -1,0 +1,7 @@
+* text=auto eol=crlf
+
+*.md   text eol=lf
+*.lua  text eol=lf
+
+# 同梱した第三者のソースは上流のバイト列のまま触らない
+thirdparty/** -text linguist-vendored

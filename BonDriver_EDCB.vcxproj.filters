@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="ソース ファイル">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx</Extensions>
+    </Filter>
+    <Filter Include="ヘッダー ファイル">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hpp;hxx</Extensions>
+    </Filter>
+    <Filter Include="ヘッダー ファイル\thirdparty">
+      <UniqueIdentifier>{2B7A8E1C-6D3F-4A55-9C21-7E1B0D4A9F31}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="リソース ファイル">
+      <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="BonDriver_EDCB.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="BonDriver_EDCB.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="IBonDriver.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="IBonDriver2.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\binzume\http.h">
+      <Filter>ヘッダー ファイル\thirdparty</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\binzume\socket.h">
+      <Filter>ヘッダー ファイル\thirdparty</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\nlohmann\json.hpp">
+      <Filter>ヘッダー ファイル\thirdparty</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="BonDriver_EDCB.ini">
+      <Filter>リソース ファイル</Filter>
+    </None>
+    <None Include="server\bonstream.lua">
+      <Filter>リソース ファイル</Filter>
+    </None>
+    <None Include="README.md">
+      <Filter>リソース ファイル</Filter>
+    </None>
+    <None Include="INTERNALS.md">
+      <Filter>リソース ファイル</Filter>
+    </None>
+  </ItemGroup>
+</Project>
