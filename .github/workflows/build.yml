@@ -68,3 +68,50 @@ jobs:
           name: BonDriver_EDCB-${{ matrix.platform }}
           path: dist
           if-no-files-found: error
+
+  # v で始まるタグを push したときだけ、ビルド結果を Releases に公開する
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      # タグの注釈をリリース本文に使うのでタグごと取得する
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+
+      - name: Package
+        run: |
+          set -eu
+          cd artifacts
+          for dir in */; do
+            name="${dir%/}"                       # 例: BonDriver_EDCB-x64
+            platform="${name##*-}"                # 例: x64
+            zipname="BonDriver_EDCB-${GITHUB_REF_NAME}-${platform}.zip"
+            (cd "$name" && zip -qr "../${zipname}" .)
+            echo "$zipname"
+          done
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          # 注釈付きタグならそのメッセージを、軽量タグなら自動生成の変更履歴を本文にする
+          notes=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")
+          if [ -n "$notes" ]; then
+            printf '%s\n' "$notes" > notes.md
+            gh release create "$GITHUB_REF_NAME" artifacts/*.zip \
+              --title "$GITHUB_REF_NAME" --notes-file notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" artifacts/*.zip \
+              --title "$GITHUB_REF_NAME" --generate-notes
+          fi
