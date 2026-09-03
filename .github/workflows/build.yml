@@ -30,7 +30,7 @@ jobs:
             arch: x86
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Locate Visual Studio
         shell: pwsh
@@ -63,7 +63,7 @@ jobs:
           copy /y INTERNALS.md dist\ || exit /b 1
           copy /y LICENSE dist\ || exit /b 1
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: BonDriver_EDCB-${{ matrix.platform }}
           path: dist
