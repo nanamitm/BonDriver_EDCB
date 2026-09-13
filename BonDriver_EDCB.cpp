@@ -638,7 +638,16 @@ BOOL APIENTRY DllMain(HINSTANCE hModule, DWORD fdwReason, LPVOID lpReserved)
 			break;
 
 		case DLL_PROCESS_DETACH:
-			// 未開放の場合はインスタンス開放
+			// プロセス終了時(lpReservedが非NULL)は何もしない。
+			// 他のスレッドは既に強制終了されており、ws2_32.dll も先に切り離されて
+			// いることがある。ローダーロック下でスレッド待ちや closesocket()/
+			// WSACleanup() を行うとハングやクラッシュの原因になるので、後始末はOSに任せる
+			if (lpReserved) {
+				break;
+			}
+
+			// FreeLibrary()で未開放のまま切り離される場合は、受信スレッドが解放済みの
+			// コードを実行しないよう、ローダーロック下でもインスタンスを開放する
 			if (CBonTuner::m_pThis) {
 				CBonTuner::m_pThis->Release();
 			}
