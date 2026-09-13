@@ -1337,18 +1337,21 @@ DWORD WINAPI CBonTuner::PushIoThread(LPVOID pParam)
 	// サーバーにTSデータリクエストを発行する
 	while (pThis->m_bLoopIoThread) {
 
-		// リクエスト処理待ちが規定未満、かつリング全体(処理待ち+ストア待ち)が
-		// まだ満杯でない場合のみ追加する。
+		// リクエスト処理待ちが規定未満、かつリング全体(処理待ち+ストア待ち)に
+		// 1スロット以上の余裕がある場合のみ追加する。
 		// (busy+readyがASYNCBUFFSIZEに達している状態で追加すると、m_pIoPushReqが
 		//  指す先はGetTsStream()でまだ読まれていない(IORS_RECVの)スロットであり、
 		//  そこへ新規WSARecvを発行すると未読データを上書き破壊してしまう。
+		//  また満杯まで詰めると、GetTsStream()が払い出した直後のスロットを
+		//  m_pIoPushReqが指すことになり、呼び出し元がまだ読んでいるRxdBuffへ
+		//  WSARecvが書き込んでしまう。そのため常に1スロット空けておく。
 		//  消費側が追いつかない場合はここで待たせ、TCPの受信バッファ側に
 		//  自然にバックプレッシャーをかける)
 		bool canPush;
 		{
 			CAutoLock lock(pThis->m_CriticalSection);
 			canPush = pThis->m_dwBusyReqNum < REQRESERVNUM &&
-				(pThis->m_dwBusyReqNum + pThis->m_dwReadyReqNum) < ASYNCBUFFSIZE;
+				(pThis->m_dwBusyReqNum + pThis->m_dwReadyReqNum + 1) < ASYNCBUFFSIZE;
 		}
 		if (canPush) {
 
