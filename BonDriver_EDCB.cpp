@@ -530,7 +530,10 @@ static std::string MakeStreamPath(const DWORD dwSpace, const DWORD dwChannel)
 			+ (g_EarlyResponse ? "&early=1" : "");
 	}
 
-	DebugOutA("%s: MakeStreamPath() path = %s\n", TUNER_NAME, path.c_str());
+	// STREAM_KEY や CSRF トークンを含む完全なURLはログへ出さない
+	DebugOutA("%s: MakeStreamPath() endpoint=%s space=%lu channel=%lu\n",
+	          TUNER_NAME, g_Endpoint == ENDPOINT_VIEW ? "view" : "bonstream",
+	          dwSpace, dwChannel);
 
 	return path;
 }
@@ -726,7 +729,8 @@ static bool FetchServiceList(const std::string &path, json &items)
 	int status = 0;
 	std::string body;
 	if (!HttpGet(path, status, body) || status != 200) {
-		DebugOutA("%s: FetchServiceList() failed. status = %d, path = %s\n", TUNER_NAME, status, path.c_str());
+		// bonstream.lua のパスには STREAM_KEY が含まれるため出力しない
+		DebugOutA("%s: FetchServiceList() failed. status = %d\n", TUNER_NAME, status);
 		return false;
 	}
 
