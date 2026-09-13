@@ -106,8 +106,8 @@ jobs:
         run: |
           set -eu
           # 注釈付きタグならそのメッセージを、軽量タグなら自動生成の変更履歴を本文にする
-          notes=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")
-          if [ -n "$notes" ]; then
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = tag ]; then
+            notes=$(git tag -l --format='%(contents)' "$GITHUB_REF_NAME")
             printf '%s\n' "$notes" > notes.md
             gh release create "$GITHUB_REF_NAME" artifacts/*.zip \
               --title "$GITHUB_REF_NAME" --notes-file notes.md
