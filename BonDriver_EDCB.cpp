@@ -838,7 +838,11 @@ void CBonTuner::InitChannel()
 	}
 
 	for (const auto &v : items) {
-		if (!v.is_object() || !v.contains("onid") || !v.contains("tsid") || !v.contains("sid")) {
+		// get<int>() は数値以外で例外を投げるので、型まで確かめてから読む
+		if (!v.is_object() ||
+		    !v.contains("onid") || !v["onid"].is_number() ||
+		    !v.contains("tsid") || !v["tsid"].is_number() ||
+		    !v.contains("sid") || !v["sid"].is_number()) {
 			continue;
 		}
 
