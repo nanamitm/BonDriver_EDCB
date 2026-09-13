@@ -1535,8 +1535,31 @@ const BOOL CBonTuner::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		return FALSE;
 	}
 
+	// 同じ接続先とNWTV_IDを使う別プロセスとの競合を防ぐ。
+	// CreateMutex()は既存オブジェクトでも成功するため、明示的に所有権を取得する
+	// 必要がある。放棄されたミューテックスは所有権を引き継いで再利用できる。
+	m_hMutex = ::CreateMutex(NULL, FALSE, g_MutexName);
+	if (!m_hMutex) {
+		DebugOutA("%s: CBonTuner::SetChannel() CreateMutex failed. error = %lu\n",
+		          TUNER_NAME, ::GetLastError());
+		return FALSE;
+	}
+	const DWORD dwMutexWait = ::WaitForSingleObject(m_hMutex, 0);
+	if (dwMutexWait != WAIT_OBJECT_0 && dwMutexWait != WAIT_ABANDONED) {
+		if (dwMutexWait == WAIT_TIMEOUT) {
+			DebugOutA("%s: CBonTuner::SetChannel() tuner is already in use\n", TUNER_NAME);
+		} else {
+			DebugOutA("%s: CBonTuner::SetChannel() mutex wait failed. error = %lu\n",
+			          TUNER_NAME, ::GetLastError());
+		}
+		::CloseHandle(m_hMutex);
+		m_hMutex = NULL;
+		return FALSE;
+	}
+
 	// バッファ確保
 	if (!(m_pIoReqBuff = AllocIoReqBuff(ASYNCBUFFSIZE))) {
+		CloseTuner();
 		return FALSE;
 	}
 
@@ -1630,11 +1653,6 @@ const BOOL CBonTuner::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		m_bLoopIoThread = TRUE;
 		if (::ResumeThread(m_hPushIoThread) == 0xFFFFFFFFUL || ::ResumeThread(m_hPopIoThread) == 0xFFFFFFFFUL) {
 			throw 4UL;
-		}
-
-		// ミューテックス作成
-		if (!(m_hMutex = ::CreateMutex(NULL, TRUE, g_MutexName))) {
-			throw 5UL;
 		}
 
 	} catch (const DWORD dwErrorStep) {
