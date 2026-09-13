@@ -689,6 +689,7 @@ CBonTuner::CBonTuner()
 	// クリティカルセクション初期化
 	::InitializeCriticalSection(&m_CriticalSection);
 	::InitializeCriticalSection(&m_ChannelLock);
+	::InitializeCriticalSection(&m_BitRateLock);
 
 	// Winsock初期化
 	// (チャンネル一覧の取得でもソケットを使うので、InitChannel()より前に行う。
@@ -708,6 +709,7 @@ CBonTuner::~CBonTuner()
 	// クリティカルセクション削除
 	::DeleteCriticalSection(&m_CriticalSection);
 	::DeleteCriticalSection(&m_ChannelLock);
+	::DeleteCriticalSection(&m_BitRateLock);
 
 	// Winsock終了
 	if (m_bWsaInit) {
@@ -1072,8 +1074,11 @@ void CBonTuner::CloseTuner()
 		m_hMutex = NULL;
 	}
 
-	m_fBitRate = 0.0f;
-	m_dwRecvBytes = 0UL;
+	{
+		CAutoLock lock(m_BitRateLock);
+		m_fBitRate = 0.0f;
+		m_dwRecvBytes = 0UL;
+	}
 
 	DebugOutA("%s: CBonTuner::CloseTuner() total elapsed = %llu ms\n", TUNER_NAME, ::GetTickCount64() - dwCloseStart);
 }
@@ -1108,6 +1113,7 @@ const DWORD CBonTuner::WaitTsStream(const DWORD dwTimeOut)
 const DWORD CBonTuner::GetReadyCount()
 {
 	// 取り出し可能TSデータ数を取得する
+	CAutoLock lock(m_CriticalSection);
 	return m_dwReadyReqNum;
 }
 
@@ -1134,6 +1140,7 @@ const BOOL CBonTuner::GetTsStream(BYTE **ppDst, DWORD *pdwSize, DWORD *pdwRemain
 	}
 
 	// TSデータをバッファから取り出す
+	::EnterCriticalSection(&m_CriticalSection);
 	if (m_dwReadyReqNum) {
 		if (m_pIoGetReq->dwState == IORS_RECV) {
 
@@ -1141,7 +1148,6 @@ const BOOL CBonTuner::GetTsStream(BYTE **ppDst, DWORD *pdwSize, DWORD *pdwRemain
 			DWORD dwRawSize = m_pIoGetReq->dwRxdSize;
 
 			// バッファ位置を進める
-			::EnterCriticalSection(&m_CriticalSection);
 			m_pIoGetReq = m_pIoGetReq->pNext;
 			m_dwReadyReqNum--;
 			*pdwRemain = m_dwReadyReqNum;
@@ -1154,8 +1160,10 @@ const BOOL CBonTuner::GetTsStream(BYTE **ppDst, DWORD *pdwSize, DWORD *pdwRemain
 		}
 
 		// 例外
+		::LeaveCriticalSection(&m_CriticalSection);
 		return FALSE;
 	}
+	::LeaveCriticalSection(&m_CriticalSection);
 
 	// 取り出し可能なデータがない
 	*pdwSize = 0;
@@ -1296,7 +1304,10 @@ void CBonTuner::PreloadStreamData(const std::string &data)
 		offset += size;
 	}
 
-	m_dwRecvBytes += (DWORD)offset;
+	{
+		CAutoLock lock(m_BitRateLock);
+		m_dwRecvBytes += (DWORD)offset;
+	}
 }
 
 // ストリームが途切れたことを WaitTsStream() の待ち手に知らせる
@@ -1329,8 +1340,13 @@ DWORD WINAPI CBonTuner::PushIoThread(LPVOID pParam)
 		//  そこへ新規WSARecvを発行すると未読データを上書き破壊してしまう。
 		//  消費側が追いつかない場合はここで待たせ、TCPの受信バッファ側に
 		//  自然にバックプレッシャーをかける)
-		if (pThis->m_dwBusyReqNum < REQRESERVNUM &&
-			(pThis->m_dwBusyReqNum + pThis->m_dwReadyReqNum) < ASYNCBUFFSIZE) {
+		bool canPush;
+		{
+			CAutoLock lock(pThis->m_CriticalSection);
+			canPush = pThis->m_dwBusyReqNum < REQRESERVNUM &&
+				(pThis->m_dwBusyReqNum + pThis->m_dwReadyReqNum) < ASYNCBUFFSIZE;
+		}
+		if (canPush) {
 
 			if (!pThis->PushIoRequest(pThis->m_sock)) {
 				// エラー発生
@@ -1354,7 +1370,12 @@ DWORD WINAPI CBonTuner::PopIoThread(LPVOID pParam)
 	// 処理済リクエストをポーリングしてリクエストを完了させる
 	while (pThis->m_bLoopIoThread) {
 
-		if (pThis->m_dwBusyReqNum) {
+		bool hasBusy;
+		{
+			CAutoLock lock(pThis->m_CriticalSection);
+			hasBusy = pThis->m_dwBusyReqNum != 0;
+		}
+		if (hasBusy) {
 
 			if (!pThis->PopIoRequest(pThis->m_sock)) {
 				// エラー発生(サーバー側の切断もここに来る)
@@ -1439,12 +1460,13 @@ const BOOL CBonTuner::PopIoRequest(SOCKET sock)
 	}
 
 	// 総受信サイズ加算
-	m_dwRecvBytes += m_pIoPopReq->dwRxdSize;
+	{
+		CAutoLock lock(m_BitRateLock);
+		m_dwRecvBytes += m_pIoPopReq->dwRxdSize;
+	}
 
 	// ビットレート計算
-	if (DiffTime(m_u64LastCalcTick, ::GetTickCount64()) >= BITRATE_CALC_TIME) {
-		CalcBitRate();
-	}
+	CalcBitRate();
 
 	// イベント削除
 	::CloseHandle(m_pIoPopReq->OverLapped.hEvent);
@@ -1638,11 +1660,13 @@ const BOOL CBonTuner::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 const float CBonTuner::GetSignalLevel(void)
 {
 	CalcBitRate();
+	CAutoLock lock(m_BitRateLock);
 	return m_fBitRate;
 }
 
 void CBonTuner::CalcBitRate()
 {
+	CAutoLock lock(m_BitRateLock);
 	ULONGLONG u64CurrentTick = ::GetTickCount64();
 	ULONGLONG u64Span = DiffTime(m_u64LastCalcTick, u64CurrentTick);
 

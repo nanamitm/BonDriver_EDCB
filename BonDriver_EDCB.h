@@ -7,6 +7,7 @@
 #include <vector>
 #include <algorithm>
 #include <memory>
+#include <atomic>
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -150,7 +151,7 @@ protected:
 
 	HANDLE m_hPushIoThread;
 	HANDLE m_hPopIoThread;
-	BOOL m_bLoopIoThread;
+	std::atomic_bool m_bLoopIoThread;
 
 	HANDLE m_hOnStreamEvent;
 
@@ -160,6 +161,7 @@ protected:
 	DWORD m_dwCurChannel;
 
 	SOCKET m_sock;
+	CRITICAL_SECTION m_BitRateLock;
 	float m_fBitRate;
 
 	void CalcBitRate();
