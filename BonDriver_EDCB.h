@@ -153,7 +153,16 @@ protected:
 	HANDLE m_hPopIoThread;
 	std::atomic_bool m_bLoopIoThread;
 
-	HANDLE m_hOnStreamEvent;
+	// WaitTsStream()がコピーを保持するため、CloseTuner()後も待機中の
+	// ハンドルは有効。選局し直しても古い待機は古いセッションを参照する。
+	struct StreamWaitState
+	{
+		StreamWaitState() : event(::CreateEvent(NULL, TRUE, FALSE, NULL)), active(true) {}
+		~StreamWaitState() { if (event) ::CloseHandle(event); }
+		HANDLE event;
+		bool active; // m_CriticalSectionで保護する
+	};
+	std::shared_ptr<StreamWaitState> m_StreamWaitState;
 
 	CRITICAL_SECTION m_CriticalSection;
 

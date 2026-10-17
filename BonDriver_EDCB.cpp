@@ -688,7 +688,6 @@ CBonTuner::CBonTuner()
 	, m_hPushIoThread(NULL)
 	, m_hPopIoThread(NULL)
 	, m_bLoopIoThread(FALSE)
-	, m_hOnStreamEvent(NULL)
 	, m_dwCurSpace(0UL)
 	, m_dwCurChannel(0xFFFFFFFFUL)
 	, m_sock(INVALID_SOCKET)
@@ -979,8 +978,9 @@ void CBonTuner::CloseTuner()
 
 	const ULONGLONG dwCloseStart = ::GetTickCount64();
 
-	// スレッド終了要求セット
-	m_bLoopIoThread = FALSE;
+	// 全待機者へ終了を通知する。待機者自身がセッションを保持するので、
+	// CloseTuner()終了や次の選局と競合してもハンドルは閉じられない。
+	AbortStream();
 
 	// サーバーへの切断通知を最優先で行う
 	// (shutdown()でFINを即座に送出することで、万一スレッド終了処理が詰まった
@@ -998,8 +998,7 @@ void CBonTuner::CloseTuner()
 	}
 
 	// スレッド終了
-	// (PopIoThreadはm_hOnStreamEventにSetEvent()するため、そのハンドルは
-	//  スレッドが完全に終了した後でなければ閉じてはならない)
+	// (受信スレッドが参照するセッションは終了後に切り離す)
 	if (m_hPushIoThread) {
 		if (::WaitForSingleObject(m_hPushIoThread, 1000) != WAIT_OBJECT_0) {
 #pragma warning(push)
@@ -1026,10 +1025,10 @@ void CBonTuner::CloseTuner()
 		m_hPopIoThread = NULL;
 	}
 
-	// イベント開放(両スレッドの終了を待った後なので、SetEvent()との競合は起きない)
-	if (m_hOnStreamEvent) {
-		::CloseHandle(m_hOnStreamEvent);
-		m_hOnStreamEvent = NULL;
+	// 待機者が残っていれば、そのコピーがイベントの寿命を延ばす。
+	{
+		CAutoLock streamLock(m_CriticalSection);
+		m_StreamWaitState.reset();
 	}
 
 	// ソケットクローズ
@@ -1102,29 +1101,24 @@ void CBonTuner::CloseTuner()
 
 const DWORD CBonTuner::WaitTsStream(const DWORD dwTimeOut)
 {
-	// 終了チェック
-	if (!m_hOnStreamEvent || !m_bLoopIoThread) {
+	std::shared_ptr<StreamWaitState> state;
+	{
+		CAutoLock lock(m_CriticalSection);
+		state = m_StreamWaitState;
+		if (!state || !state->active) {
+			return WAIT_ABANDONED;
+		}
+	}
+
+	const DWORD dwRet = ::WaitForSingleObject(state->event, dwTimeOut ? dwTimeOut : INFINITE);
+	CAutoLock lock(m_CriticalSection);
+	if (!state->active) {
 		return WAIT_ABANDONED;
 	}
-
-	// イベントがシグナル状態になるのを待つ
-	const DWORD dwRet = ::WaitForSingleObject(m_hOnStreamEvent, (dwTimeOut) ? dwTimeOut : INFINITE);
-
-	switch (dwRet) {
-		case WAIT_ABANDONED:
-			// チューナが閉じられた
-			return WAIT_ABANDONED;
-
-		case WAIT_OBJECT_0:
-		case WAIT_TIMEOUT:
-			// ストリーム取得可能 or チューナが閉じられた
-			return (m_bLoopIoThread) ? dwRet : WAIT_ABANDONED;
-
-		case WAIT_FAILED:
-		default:
-			// 例外
-			return WAIT_FAILED;
+	if (dwRet == WAIT_OBJECT_0) {
+		::ResetEvent(state->event);
 	}
+	return dwRet;
 }
 
 const DWORD CBonTuner::GetReadyCount()
@@ -1334,12 +1328,10 @@ void CBonTuner::PreloadStreamData(const std::string &data)
 void CBonTuner::AbortStream()
 {
 	m_bLoopIoThread = FALSE;
-
-	// WaitTsStream()を待っているスレッドを起こす
-	// (両受信スレッドの終了を待ってからでないとCloseTuner()はイベントを閉じないので、
-	//  ここでのSetEvent()が閉じたハンドルに当たることはない)
-	if (m_hOnStreamEvent) {
-		::SetEvent(m_hOnStreamEvent);
+	CAutoLock lock(m_CriticalSection);
+	if (m_StreamWaitState) {
+		m_StreamWaitState->active = false;
+		::SetEvent(m_StreamWaitState->event);
 	}
 }
 
@@ -1509,10 +1501,8 @@ const BOOL CBonTuner::PopIoRequest(SOCKET sock)
 	m_pIoPopReq = m_pIoPopReq->pNext;
 	m_dwBusyReqNum--;
 	m_dwReadyReqNum++;
+	::SetEvent(m_StreamWaitState->event);
 	::LeaveCriticalSection(&m_CriticalSection);
-
-	// イベントセット
-	::SetEvent(m_hOnStreamEvent);
 
 	return TRUE;
 }
@@ -1633,9 +1623,13 @@ const BOOL CBonTuner::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 			PreloadStreamData(leftover);
 		}
 
-		// イベント作成
-		if (!(m_hOnStreamEvent = ::CreateEvent(NULL, FALSE, FALSE, NULL))) {
-			throw 2UL;
+		// セッションごとのイベント作成
+		{
+			CAutoLock streamLock(m_CriticalSection);
+			m_StreamWaitState = std::make_shared<StreamWaitState>();
+			if (!m_StreamWaitState->event) {
+				throw 2UL;
+			}
 		}
 
 		// スレッド起動
