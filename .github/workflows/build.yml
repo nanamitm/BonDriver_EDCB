@@ -51,6 +51,22 @@ jobs:
           msbuild BonDriver_EDCB.sln /p:Configuration=Release /p:Platform=${{ matrix.platform }} /m /v:minimal || exit /b 1
           rem テスタもコンパイルが通ることを確認する(成果物には含めない)
           cl /nologo /EHsc /std:c++20 /utf-8 /Fe:${{ matrix.outdir }}\Release\bontest.exe /Fo:${{ matrix.outdir }}\Release\ test\bontest.cpp || exit /b 1
+          cl /nologo /EHsc /std:c++20 /utf-8 /Fe:${{ matrix.outdir }}\Release\regression.exe /Fo:${{ matrix.outdir }}\Release\ test\regression.cpp || exit /b 1
+
+      - name: Stream lifecycle regression tests
+        shell: pwsh
+        run: |
+          python test/regression.py ${{ matrix.outdir }}/Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Lua session cleanup regression tests
+        if: matrix.arch == 'x64'
+        shell: pwsh
+        run: |
+          python -m pip install lupa==2.8
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python test/bonstream_test.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Collect files
         shell: cmd

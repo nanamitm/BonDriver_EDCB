@@ -215,6 +215,30 @@ bontest BonDriver_EDCB.dll 1 0 10 3         … さらにチャンネル3へ切�
 環境変数 `BONDRIVER_EDCB_DEBUG` を設定すると、BonDriver 側のログ(選局 URL、HTTP ステータス、
 各段階の所要時間)も標準エラー出力に出ます。TVTest から使うときは DebugView で同じログが見えます。
 
+### 回帰テスト (EDCB・TVTest 不要)
+
+Visual Studio の開発者コマンドプロンプトで、ビルドした DLL と同じアーキテクチャの
+テスト実行ファイルを作成して実行します。次は x64 Release の例です。
+
+```
+cl /nologo /EHsc /std:c++20 /utf-8 /Fe:x64\Release\regression.exe /Fo:x64\Release\ test\regression.cpp
+python test\regression.py x64\Release
+```
+
+一時フォルダ内の DLL・ini のコピーと、ローカルの模擬 HTTP サーバーを使い、
+切断時の複数待機者の解除、再選局との競合、先読み・未読データの通知、
+プロセス間および DLL コピー間の排他を検査します。利用中の EDCB には接続しません。
+
+Lua 側の後始末は、EDCB API を模倣して実際の `server/bonstream.lua` を実行します。
+Python 用 Lua ランタイム `lupa` はテスト時だけ必要です。
+
+```
+python -m pip install lupa==2.8
+python test\bonstream_test.py
+```
+
+GitHub Actions でも C++ の回帰テストを x64・x86 の両方で実行し、Lua の回帰テストを実行します。
+
 ## License
 
 MIT License. `LICENSE` を参照してください。
