@@ -160,7 +160,9 @@ protected:
 		StreamWaitState() : event(::CreateEvent(NULL, TRUE, FALSE, NULL)), active(true) {}
 		~StreamWaitState() { if (event) ::CloseHandle(event); }
 		HANDLE event;
-		bool active; // m_CriticalSectionで保護する
+		// 変更はm_CriticalSection内で行う。待機明けはCBonTunerが解放済みでも
+		// 読めるよう、ロックなしで参照できるatomicにする。
+		std::atomic_bool active;
 	};
 	std::shared_ptr<StreamWaitState> m_StreamWaitState;
 

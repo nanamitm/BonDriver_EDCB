@@ -1113,11 +1113,8 @@ const DWORD CBonTuner::WaitTsStream(const DWORD dwTimeOut)
 	}
 
 	const DWORD dwRet = ::WaitForSingleObject(state->event, dwTimeOut ? dwTimeOut : INFINITE);
-	CAutoLock lock(m_CriticalSection);
-	if (!state->active) {
-		return WAIT_ABANDONED;
-	}
-	return dwRet;
+	// 待機中にRelease()されることがあるので、ここからはthisに触れない
+	return state->active ? dwRet : WAIT_ABANDONED;
 }
 
 const DWORD CBonTuner::GetReadyCount()
