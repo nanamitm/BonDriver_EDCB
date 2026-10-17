@@ -175,7 +175,12 @@ if ok then
     f=OpenReader(pipeName,'nwtv-'..n,{n,myOpenID},serviceOnly and sid or nil)
   end
   if not f then
-    edcb.CloseNetworkTV(n)
+    -- パイプ待ちやReader起動の間に次の選局が始まることがある。
+    -- このリクエストが開いたセッションだけを終了し、新しい視聴は残す。
+    local currentOK,currentPID,currentOpenID=edcb.IsOpenNetworkTV(n)
+    if currentOK and myOpenID~=nil and currentOpenID==myOpenID then
+      edcb.CloseNetworkTV(n)
+    end
   end
 end
 
