@@ -1083,9 +1083,8 @@ void CBonTuner::CloseTuner()
 	m_dwCurSpace = 0UL;
 	m_dwCurChannel = 0xFFFFFFFFUL;
 
-	// ミューテックス開放
+	// 使用中マーカーを開放(スレッドの所有権は取得しない)
 	if (m_hMutex) {
-		::ReleaseMutex(m_hMutex);
 		::CloseHandle(m_hMutex);
 		m_hMutex = NULL;
 	}
@@ -1541,23 +1540,18 @@ const BOOL CBonTuner::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 		return FALSE;
 	}
 
-	// 同じ接続先とNWTV_IDを使う別プロセスとの競合を防ぐ。
-	// CreateMutex()は既存オブジェクトでも成功するため、明示的に所有権を取得する
-	// 必要がある。放棄されたミューテックスは所有権を引き継いで再利用できる。
+	// 名前付きオブジェクトの存在を使用中マーカーにする。新規作成だけを
+	// 成功とし、ハンドルをセッション終了まで保持する。スレッドの所有権に
+	// 依存しないため、選局したスレッドの終了や別スレッドでのCloseにも対応する。
 	m_hMutex = ::CreateMutex(NULL, FALSE, g_MutexName);
+	const DWORD dwMutexError = ::GetLastError();
 	if (!m_hMutex) {
 		DebugOutA("%s: CBonTuner::SetChannel() CreateMutex failed. error = %lu\n",
-		          TUNER_NAME, ::GetLastError());
+		          TUNER_NAME, dwMutexError);
 		return FALSE;
 	}
-	const DWORD dwMutexWait = ::WaitForSingleObject(m_hMutex, 0);
-	if (dwMutexWait != WAIT_OBJECT_0 && dwMutexWait != WAIT_ABANDONED) {
-		if (dwMutexWait == WAIT_TIMEOUT) {
-			DebugOutA("%s: CBonTuner::SetChannel() tuner is already in use\n", TUNER_NAME);
-		} else {
-			DebugOutA("%s: CBonTuner::SetChannel() mutex wait failed. error = %lu\n",
-			          TUNER_NAME, ::GetLastError());
-		}
+	if (dwMutexError == ERROR_ALREADY_EXISTS) {
+		DebugOutA("%s: CBonTuner::SetChannel() tuner is already in use\n", TUNER_NAME);
 		::CloseHandle(m_hMutex);
 		m_hMutex = NULL;
 		return FALSE;
