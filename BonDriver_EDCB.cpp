@@ -1107,15 +1107,15 @@ const DWORD CBonTuner::WaitTsStream(const DWORD dwTimeOut)
 		if (!state || !state->active) {
 			return WAIT_ABANDONED;
 		}
+		if (m_dwReadyReqNum) {
+			return WAIT_OBJECT_0;
+		}
 	}
 
 	const DWORD dwRet = ::WaitForSingleObject(state->event, dwTimeOut ? dwTimeOut : INFINITE);
 	CAutoLock lock(m_CriticalSection);
 	if (!state->active) {
 		return WAIT_ABANDONED;
-	}
-	if (dwRet == WAIT_OBJECT_0) {
-		::ResetEvent(state->event);
 	}
 	return dwRet;
 }
@@ -1161,6 +1161,10 @@ const BOOL CBonTuner::GetTsStream(BYTE **ppDst, DWORD *pdwSize, DWORD *pdwRemain
 			m_pIoGetReq = m_pIoGetReq->pNext;
 			m_dwReadyReqNum--;
 			*pdwRemain = m_dwReadyReqNum;
+			// 通知は「未読データあり」を表す。待機だけでは消費しない。
+			if (!m_dwReadyReqNum && m_StreamWaitState && m_StreamWaitState->active) {
+				::ResetEvent(m_StreamWaitState->event);
+			}
 			::LeaveCriticalSection(&m_CriticalSection);
 
 			*ppDst = pRawData;
@@ -1188,6 +1192,9 @@ void CBonTuner::PurgeTsStream()
 	::EnterCriticalSection(&m_CriticalSection);
 	m_pIoGetReq = m_pIoPopReq;
 	m_dwReadyReqNum = 0;
+	if (m_StreamWaitState && m_StreamWaitState->active) {
+		::ResetEvent(m_StreamWaitState->event);
+	}
 	::LeaveCriticalSection(&m_CriticalSection);
 }
 
@@ -1623,6 +1630,9 @@ const BOOL CBonTuner::SetChannel(const DWORD dwSpace, const DWORD dwChannel)
 			m_StreamWaitState = std::make_shared<StreamWaitState>();
 			if (!m_StreamWaitState->event) {
 				throw 2UL;
+			}
+			if (m_dwReadyReqNum) {
+				::SetEvent(m_StreamWaitState->event);
 			}
 		}
 
